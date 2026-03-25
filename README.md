@@ -2,7 +2,7 @@
 # 🚀 潜空间流形与 X-Pred 的完美碰撞：如何将扩散模型训练提速 3 倍？
 
 **TL;DR:** 
-我们发现，将 JiT (Just-in-Time) 扩散/流匹配模型的训练从像素空间（Pixel Space）迁移到 VAE 潜空间（Latent Space），并采用 **X-Pred 损失加权策略**，能带来极其夸张的收敛加速。与传统的 $\epsilon$ 预测和 $v$ (Velocity) 预测相比，**我们的方法将训练速度提升了近乎 3 倍**。
+我们发现，将 JiT (just image transformer) /流匹配模型的训练从像素空间（Pixel Space）迁移到 VAE 潜空间（Latent Space），并采用 **X-Pred 损失加权策略**，能带来极其夸张的收敛加速。与传统的 $\epsilon$ 预测和 $v$ (Velocity) 预测相比，**我们的方法将训练速度提升了近乎 3 倍**。
 在这篇博客中，我们将从**数据流形（Data Manifold）**的几何视角，揭示这一性能飞跃背后的数学本质。
 
 ---
