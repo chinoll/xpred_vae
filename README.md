@@ -113,9 +113,18 @@ $$\boldsymbol{\epsilon}^*(\boldsymbol{z}_t, t) = \mathbb{E}[\boldsymbol{\epsilon
 
 虽然 $\boldsymbol{\epsilon}^*$ 可以从 $\boldsymbol{x}_l^*$ 推出，但 $\boldsymbol{\epsilon}^*$ 本身是一个 $D_l$ 维的向量场——它在 $\mathbb{R}^{D_l}$ 的所有方向上都有非零分量。即使数据在低维流形上，**最优噪声预测函数必须在所有 $D_l$ 个方向上提供精确值**。
 
+**v-prediction（flow matching 的标准形式）的 Bayes 最优解** 为：
+
+$$\boldsymbol{v}^*(\boldsymbol{z}_t, t) = \mathbb{E}[\boldsymbol{v} \mid \boldsymbol{z}_t, t] = \mathbb{E}[\boldsymbol{x}_l - \boldsymbol{\epsilon} \mid \boldsymbol{z}_t, t] = \boldsymbol{x}_l^*(\boldsymbol{z}_t, t) - \boldsymbol{\epsilon}^*(\boldsymbol{z}_t, t) \tag{9b}$$
+
+这是 flow matching (Lipman et al., 2022; Liu et al., 2022) 以及 SD3 (Esser et al., 2024) 等方法的训练目标。$\boldsymbol{v}^*$ 是**两个不同维度结构的量的差**：$\boldsymbol{x}_l^*$ 在 $d$ 维流形上，$\boldsymbol{\epsilon}^*$ 在 $D_l$ 维空间中。它们的差 $\boldsymbol{v}^*$ 不在任何低维子空间中——它继承了 $\boldsymbol{\epsilon}^*$ 的全维性。
+
+更直观地理解：在任一固定时间步 $t$ 和固定 $\boldsymbol{z}_t$ 下，后验分布 $p(\boldsymbol{x}_l | \boldsymbol{z}_t)$ 和 $p(\boldsymbol{\epsilon} | \boldsymbol{z}_t)$ 之间存在确定性约束 $\boldsymbol{z}_t = t\boldsymbol{x}_l + (1-t)\boldsymbol{\epsilon}$。但 $\boldsymbol{v} = \boldsymbol{x}_l - \boldsymbol{\epsilon}$ 的后验均值仍然需要在 $D_l$ 维空间中精确指定——因为 $\boldsymbol{\epsilon}$ 的各向同性性质"污染"了所有方向。
+
 这就是核心不对称性：
 - **x-prediction 学习的是从 $\mathbb{R}^{D_l}$ 到 $d$ 维流形的投影**——目标空间是低维的
 - **$\epsilon$-prediction 学习的是从 $\mathbb{R}^{D_l}$ 到 $\mathbb{R}^{D_l}$ 的映射**——目标空间是全维的
+- **v-prediction (flow matching) 学习的也是 $\mathbb{R}^{D_l}$ 到 $\mathbb{R}^{D_l}$ 的映射**——尽管 $\boldsymbol{v}$ 表面上连接了 $\boldsymbol{x}$ 和 $\boldsymbol{\epsilon}$，但它本身仍然是全维的
 
 ### 3.3 逼近误差的维度依赖性
 
@@ -139,17 +148,29 @@ $$\mathcal{E}_x(N) = \mathbb{E}\left\| \hat{\boldsymbol{x}}_\theta - \boldsymbol
 
 $$\mathcal{E}_\epsilon(N) = \mathbb{E}\left\| \hat{\boldsymbol{\epsilon}}_\theta - \boldsymbol{\epsilon}^* \right\|^2 = O\left(N^{-2s/D_l}\right) \tag{12}$$
 
-**效率比.** 要达到相同目标误差 $\delta$，所需参数量分别为：
+**v-prediction (flow matching) 的逼近误差.** 这是当前 latent diffusion 的主流训练范式（SD3、FLUX、SiT 均采用此形式）。目标函数 $\boldsymbol{v}^*(\boldsymbol{z}_t, t) = \boldsymbol{x}_l^* - \boldsymbol{\epsilon}^*$ 是两个不同维度结构的函数之差。我们可以精确分析其逼近复杂度。
 
-$$N_x \sim \delta^{-d/(2s)}, \qquad N_\epsilon \sim \delta^{-D_l/(2s)} \tag{13}$$
+将 $\boldsymbol{v}^*$ 在 latent 协方差矩阵 $\boldsymbol{\Sigma}_l$ 的特征方向上分解。对于第 $j$ 个特征方向（对应特征值 $\lambda_j$），$\boldsymbol{v}^*$ 在该方向上的分量为：
 
-两者之比为：
+$$v_j^* = x_{l,j}^* - \epsilon_j^* \tag{12b}$$
 
-$$\boxed{\frac{N_\epsilon}{N_x} \sim \delta^{-(D_l - d)/(2s)}} \tag{14}$$
+$x_{l,j}^*$ 的变化幅度正比于 $\sqrt{\lambda_j}$（数据方差），而 $\epsilon_j^*$ 在所有方向上的变化幅度相同（噪声各向同性）。在 $\lambda_j \approx 0$ 的方向上（即流形的法方向），$v_j^* \approx -\epsilon_j^*$，仍然需要精确预测。因此 $\boldsymbol{v}^*$ 的有效维度等于 $D_l$，与 $\epsilon$-prediction 相同：
 
-这是**超多项式**的增长。对于 $D_l = 4096$，$d = 500$，即使 $s = 2$（二阶光滑），指数差 $(D_l - d)/(2s) = 899$ 意味着 x-prediction 的参数效率在理论上存在巨大优势。
+$$\mathcal{E}_v(N) = \mathbb{E}\left\| \hat{\boldsymbol{v}}_\theta - \boldsymbol{v}^* \right\|^2 = O\left(N^{-2s/D_l}\right) \tag{12c}$$
 
-当然，实际训练中的增益不会达到理论极限——式(10)中的常数项、网络架构的具体选择、优化器的行为都会影响实际增益。但**方向是明确的**：x-prediction 在 latent space 中拥有系统性的逼近优势。
+**这是一个重要的澄清：** 尽管 flow matching 的 $\boldsymbol{v} = \boldsymbol{x} - \boldsymbol{\epsilon}$ 在形式上"包含"了干净数据 $\boldsymbol{x}$，但从逼近论的角度看，$v$-prediction 的复杂度与 $\epsilon$-prediction 完全相同——都受 $D_l$ 维环境空间的约束。$\boldsymbol{v}$ 中的 $\boldsymbol{x}$ 分量虽然是低维的，但 $-\boldsymbol{\epsilon}$ 分量的全维性使得整体逼近速率无法改善。
+
+**效率比.** 要达到相同目标误差 $\delta$，三种方案所需参数量分别为：
+
+$$N_x \sim \delta^{-d/(2s)}, \qquad N_\epsilon \sim N_v \sim \delta^{-D_l/(2s)} \tag{13}$$
+
+x-prediction 与 $\epsilon$/$v$-prediction 之比为：
+
+$$\boxed{\frac{N_\epsilon}{N_x} = \frac{N_v}{N_x} \sim \delta^{-(D_l - d)/(2s)}} \tag{14}$$
+
+这是**超多项式**的增长。$\epsilon$-prediction 和 v-prediction (flow matching) 在逼近效率上完全等价——它们面临的是同一个维度诅咒。对于 $D_l = 4096$，$d = 500$，即使 $s = 2$（二阶光滑），指数差 $(D_l - d)/(2s) = 899$ 意味着 x-prediction 的参数效率在理论上存在巨大优势。
+
+当然，实际训练中的增益不会达到理论极限——式(10)中的常数项、网络架构的具体选择、优化器的行为都会影响实际增益。但**方向是明确的**：x-prediction 在 latent space 中对比 flow matching ($v$-pred) 和 $\epsilon$-pred 都拥有系统性的逼近优势。
 
 ### 3.4 误差放大分析：从预测噪声到还原图像
 
@@ -262,7 +283,172 @@ $$\frac{d}{h} = \frac{500}{1152} \approx 0.43 \tag{26}$$
 
 ---
 
-## 4. 两步压缩原理
+## 4. VAE Latent Space 的几何结构与 x-prediction 的协同
+
+前文的分析建立在一个关键假设上：VAE encoder 将像素空间中的数据流形 $\mathcal{M}$ 映射为 latent space 中的流形 $\mathcal{M}_l$，且 $\mathcal{M}_l$ 具有"更好"的几何性质。这一节我们严格地分析 VAE 的训练目标如何塑造 latent space 的几何结构，以及为什么这种结构与 x-prediction 产生协同效应而与 $\epsilon$/$v$-prediction 无关。
+
+### 4.1 VAE 的优化目标与 Latent Space 的诱导结构
+
+VAE (Kingma & Welling, 2013) 通过最大化证据下界 (ELBO) 来训练：
+
+$$\mathcal{L}_{\text{VAE}} = \mathbb{E}_{q_\phi(\boldsymbol{z}|\boldsymbol{x})} \left[ \log p_\psi(\boldsymbol{x} | \boldsymbol{z}) \right] - D_{\text{KL}}\left( q_\phi(\boldsymbol{z}|\boldsymbol{x}) \| p(\boldsymbol{z}) \right) \tag{27}$$
+
+其中 $q_\phi(\boldsymbol{z}|\boldsymbol{x}) = \mathcal{N}(\boldsymbol{\mu}_\phi(\boldsymbol{x}), \text{diag}(\boldsymbol{\sigma}_\phi^2(\boldsymbol{x})))$ 是编码器的后验近似，$p(\boldsymbol{z}) = \mathcal{N}(\boldsymbol{0}, \boldsymbol{I}_{D_l})$ 是先验。这两项分别施加了两种几何约束：
+
+**重建项** $\mathbb{E}[\log p_\psi(\boldsymbol{x}|\boldsymbol{z})]$ 要求 latent code $\boldsymbol{z}$ 保留足够的信息以重建 $\boldsymbol{x}$。这等价于要求编码映射 $\text{Enc}: \mathcal{M} \to \mathcal{M}_l$ 近似保持流形的拓扑结构——不同的输入图像必须映射到不同的 latent code（否则无法重建）。从微分几何的角度，这要求 encoder 的 Jacobian $\boldsymbol{J}_\phi(\boldsymbol{x}) = \partial \boldsymbol{\mu}_\phi / \partial \boldsymbol{x} \in \mathbb{R}^{D_l \times D}$ 在流形的切方向上满秩。
+
+**KL 项** $D_{\text{KL}}(q_\phi \| p)$ 将后验推向标准高斯先验。对于单个样本 $\boldsymbol{x}$，KL 散度展开为：
+
+$$D_{\text{KL}} = \frac{1}{2} \sum_{j=1}^{D_l} \left( \mu_{\phi,j}^2 + \sigma_{\phi,j}^2 - \log \sigma_{\phi,j}^2 - 1 \right) \tag{28}$$
+
+这一项对 latent space 的几何产生三个关键效应：
+
+**(a) 均值正则化：** $\mu_{\phi,j}^2$ 项惩罚 latent code 偏离原点，防止流形 $\mathcal{M}_l$ 在 $\mathbb{R}^{D_l}$ 中漂移到远离原点的区域。这意味着 $\mathcal{M}_l$ 被约束在以原点为中心的有界区域内。
+
+**(b) 方差正则化：** $\sigma_{\phi,j}^2 - \log \sigma_{\phi,j}^2 - 1$ 的最小值在 $\sigma_{\phi,j}^2 = 1$ 处取得。这鼓励每个 latent 维度的局部方差接近 1——即流形 $\mathcal{M}_l$ 在每个坐标方向上具有大致均匀的"厚度"。
+
+**(c) 维度利用压力：** KL 项对每个维度 $j$ 独立施加惩罚。如果某个维度 $j$ 对重建没有贡献（即 $\mu_{\phi,j} \approx 0, \sigma_{\phi,j} \approx 1$ 对所有 $\boldsymbol{x}$），则该维度的 KL 代价为零。反之，任何"被使用"的维度（$\mu_{\phi,j}$ 因 $\boldsymbol{x}$ 而变化）都会产生非零 KL 代价。这构成了一个**隐式的维度选择机制**：VAE 只会"激活"重建所必需的维度，其余维度保持为先验噪声。
+
+### 4.2 Latent 协方差矩阵的谱结构
+
+上述分析可以通过 latent code 的经验协方差矩阵精确量化。设 $\boldsymbol{x}_l = \boldsymbol{\mu}_\phi(\boldsymbol{x})$ 为 encoder 均值（实际使用时的 latent code），定义经验协方差：
+
+$$\boldsymbol{\Sigma}_l = \mathbb{E}_{\boldsymbol{x} \sim p_{\text{data}}} \left[ (\boldsymbol{x}_l - \bar{\boldsymbol{x}}_l)(\boldsymbol{x}_l - \bar{\boldsymbol{x}}_l)^\top \right] \in \mathbb{R}^{D_l \times D_l} \tag{29}$$
+
+设 $\boldsymbol{\Sigma}_l$ 的特征值为 $\lambda_1 \geq \lambda_2 \geq \cdots \geq \lambda_{D_l} \geq 0$。由流形假设和 KL 正则化的维度选择效应，$\boldsymbol{\Sigma}_l$ 的谱呈现**快速衰减**：
+
+$$\lambda_j \begin{cases} = \Theta(1) & \text{if } j \leq d_{\text{eff}} \\ \approx 0 & \text{if } j > d_{\text{eff}} \end{cases} \tag{30}$$
+
+其中 $d_{\text{eff}}$ 为 latent space 的**有效维度**，满足 $d \leq d_{\text{eff}} \leq D_l$。KL 正则化越强（$\beta$-VAE 中 $\beta$ 越大），$d_{\text{eff}}$ 越接近 $d$；KL 正则化越弱，$d_{\text{eff}}$ 可能远大于 $d$（但仍远小于 $D_l$）。
+
+可以通过**累积方差比**来量化：
+
+$$R(k) = \frac{\sum_{j=1}^{k} \lambda_j}{\sum_{j=1}^{D_l} \lambda_j} \tag{31}$$
+
+对于典型的图像 VAE（如 SD-VAE），$R(k)$ 在 $k \approx 10^2$ 到 $10^3$ 时已经超过 0.95，而 $D_l = 4096$。这直接给出了 $d_{\text{eff}} / D_l$ 的经验估计。
+
+### 4.3 Jacobian 分析：VAE 如何重塑流形几何
+
+VAE encoder 不仅降低了环境维度（$D \to D_l$），更关键的是改变了流形的**内蕴几何**——曲率、reach、度量张量。我们通过 encoder Jacobian 来分析这一点。
+
+设 encoder 均值映射为 $\boldsymbol{\mu}_\phi: \mathbb{R}^D \to \mathbb{R}^{D_l}$，其 Jacobian 为 $\boldsymbol{J}_\phi(\boldsymbol{x}) \in \mathbb{R}^{D_l \times D}$。流形 $\mathcal{M}$ 上 $\boldsymbol{x}$ 处的切空间 $T_{\boldsymbol{x}}\mathcal{M}$ 经过 encoder 映射到 $\mathcal{M}_l$ 上对应点的切空间：
+
+$$T_{\boldsymbol{x}_l}\mathcal{M}_l = \boldsymbol{J}_\phi(\boldsymbol{x}) \cdot T_{\boldsymbol{x}}\mathcal{M} \tag{32}$$
+
+像素空间中流形 $\mathcal{M}$ 的**黎曼度量张量**（第一基本形式）为 $\boldsymbol{G}(\boldsymbol{x}) = \boldsymbol{J}_\phi^\top \boldsymbol{J}_\phi \in \mathbb{R}^{d \times d}$（限制在切空间上）。编码后流形 $\mathcal{M}_l$ 的度量张量则由 $\boldsymbol{J}_\phi$ 的奇异值决定。
+
+设 $\boldsymbol{J}_\phi$ 在流形切方向上的奇异值为 $\sigma_1 \geq \sigma_2 \geq \cdots \geq \sigma_d > 0$。这些奇异值描述了 encoder 对流形不同方向的"拉伸/压缩"程度：
+
+- 如果所有 $\sigma_i \approx c$（某个常数），则 encoder 执行的是近似**等距映射**——流形的内蕴几何被保持
+- 如果 $\sigma_1 / \sigma_d \gg 1$（条件数大），则 encoder 对某些方向大幅拉伸、某些方向大幅压缩——流形被扭曲
+
+**VAE 的重建损失隐含地优化了 Jacobian 的条件数。** 原因是：如果 encoder 对某个切方向的奇异值 $\sigma_i$ 很小，则该方向上的信息在 latent code 中几乎丢失，decoder 无法重建。因此，重建损失迫使所有 $\sigma_i$ 保持在合理范围内，从而使 $\boldsymbol{J}_\phi$ 的条件数不至于过大。
+
+### 4.4 流形曲率与 Reach 的改善
+
+流形 $\mathcal{M}$ 在像素空间中的几何通常非常复杂——高曲率、自相交、狭窄的瓶颈区域。这些特征可以用 **reach** $\tau(\mathcal{M})$ 来度量。
+
+**定义 (Reach).** 流形 $\mathcal{M}$ 的 reach 定义为 $\mathcal{M}$ 到其**中轴** (medial axis) 的最小距离：
+
+$$\tau(\mathcal{M}) = \inf_{\boldsymbol{x} \in \mathcal{M}} \sup \left\{ r > 0 : B(\boldsymbol{x}, r) \cap \mathcal{M} \text{ 可被唯一最近点投影} \right\} \tag{33}$$
+
+直觉上，reach 越大，流形越"平坦"，越容易被低维线性子空间局部逼近。Reach 越小，流形越"弯曲"，逼近误差中的常数项越大。
+
+**VAE 的 KL 正则化增大了 latent 流形的 reach。** 数学论证如下：
+
+KL 项将 latent 分布推向各向同性高斯 $\mathcal{N}(\boldsymbol{0}, \boldsymbol{I})$。设 latent code 的边际分布为 $p_l(\boldsymbol{x}_l) = \mathbb{E}_{p_\text{data}}[q_\phi(\boldsymbol{x}_l | \boldsymbol{x})]$。KL 最小化鼓励 $p_l$ 接近 $\mathcal{N}(\boldsymbol{0}, \boldsymbol{I})$。
+
+一个支撑在高曲率流形上的分布不可能接近各向同性高斯——因为高曲率意味着分布集中在弯曲的低维子集上，而非均匀扩散。因此，KL 正则化施加了一个**几何约束**：$\mathcal{M}_l$ 的曲率不能太大。更形式化地，对于满足 KL 约束的 latent 流形：
+
+$$\tau(\mathcal{M}_l) \geq \tau_{\min}(\beta) \tag{34}$$
+
+其中 $\tau_{\min}$ 随 KL 权重 $\beta$ 的增大而增大。这在文献中被称为 VAE 的"后验坍缩"和"解耦"之间的权衡——KL 越强，latent space 越"规整"（reach 更大），但可能丢失细节（重建变差）。
+
+### 4.5 核心定理：VAE 几何预条件化与 x-prediction 的协同
+
+现在我们可以将 VAE 的几何性质与 x-prediction 的优势严格地联系起来。
+
+回顾 3.3 节的逼近定理（式(10)），逼近误差的完整形式（包含常数项）为：
+
+$$\mathcal{E}(N) = O\left( C_s(\mathcal{M}_l)^2 \cdot N^{-2s/d} \right) \tag{35}$$
+
+其中 $C_s(\mathcal{M}_l)$ 是 Hölder 常数，它依赖于流形的几何：
+
+$$C_s(\mathcal{M}_l) \propto \frac{\text{diam}(\mathcal{M}_l)^s}{\tau(\mathcal{M}_l)^s} \cdot \text{vol}(\mathcal{M}_l)^{1/2} \tag{36}$$
+
+其中 $\text{diam}(\mathcal{M}_l)$ 为流形直径，$\text{vol}(\mathcal{M}_l)$ 为流形体积。
+
+**关键观察：** VAE 的 KL 正则化同时作用于这三个量：
+- **直径约束**：$\mu_{\phi,j}^2$ 惩罚限制了 $\text{diam}(\mathcal{M}_l)$
+- **Reach 增大**：KL 约束增大了 $\tau(\mathcal{M}_l)$（如式(34)）
+- **体积控制**：$\sigma_{\phi,j}^2 \to 1$ 的压力使流形不会过度膨胀
+
+这三者的联合效应是**降低 $C_s(\mathcal{M}_l)$**——使得 latent 流形上的函数更容易被神经网络逼近。
+
+现在对比 x-prediction 和 $\epsilon$-prediction 从 VAE 几何中获得的收益：
+
+**x-prediction 的误差：**
+
+$$\mathcal{E}_x(N) = O\left( C_s(\mathcal{M}_l)^2 \cdot N^{-2s/d} \right) \tag{37}$$
+
+VAE 同时降低了常数项 $C_s(\mathcal{M}_l)^2$ 和维度项中的 $d$（通过维度压缩使 $d$ 更"纯净"）。**两个因素都受益于 VAE 的几何优化。**
+
+**$\epsilon$-prediction 的误差：**
+
+$$\mathcal{E}_\epsilon(N) = O\left( N^{-2s/D_l} \right) \tag{38}$$
+
+这里的速率 $N^{-2s/D_l}$ 由**环境维度** $D_l$ 决定，而非流形维度。无论 VAE 如何优化 $\mathcal{M}_l$ 的几何，$D_l$ 是固定的（由 VAE 架构决定）。**VAE 的几何优化对 $\epsilon$-prediction 的逼近速率没有任何帮助。**
+
+这就是协同效应的数学本质：
+
+$$\boxed{\text{VAE 几何优化} \times \text{x-prediction} = C_s(\mathcal{M}_l)^2 \cdot N^{-2s/d} \quad \text{(双重受益)}}$$
+$$\text{VAE 几何优化} \times \text{$\epsilon$-prediction} = N^{-2s/D_l} \quad \text{(几何优化被浪费)}$$
+
+### 4.6 Latent Space 的各向异性与 x-prediction 的天然适配
+
+实际的 VAE latent space 并非各向同性的——不同 latent 维度承载的信息量差异巨大。这种**各向异性**可以通过式(29)的协方差矩阵 $\boldsymbol{\Sigma}_l$ 的特征值谱来表征。
+
+设 $\boldsymbol{\Sigma}_l = \boldsymbol{U} \boldsymbol{\Lambda} \boldsymbol{U}^\top$ 为谱分解，其中 $\boldsymbol{\Lambda} = \text{diag}(\lambda_1, \ldots, \lambda_{D_l})$。定义**有效维度** (effective dimensionality)：
+
+$$d_{\text{eff}} = \frac{\left(\sum_{j=1}^{D_l} \lambda_j\right)^2}{\sum_{j=1}^{D_l} \lambda_j^2} = \frac{\text{tr}(\boldsymbol{\Sigma}_l)^2}{\|\boldsymbol{\Sigma}_l\|_F^2} \tag{39}$$
+
+这是 participation ratio 的定义，当所有 $\lambda_j$ 相等时 $d_{\text{eff}} = D_l$（各向同性），当只有一个 $\lambda_j$ 非零时 $d_{\text{eff}} = 1$。
+
+**对于 x-prediction**，网络学习的目标函数自然地沿着 $\boldsymbol{\Sigma}_l$ 的主方向变化——高方差方向对应图像的主要语义变化（姿态、背景、颜色等），低方差方向对应细微纹理或噪声。x-prediction 的损失梯度自动集中在高方差（高信息量）方向上，因为这些方向上的残差更大。
+
+更具体地，考虑 v-loss 下的 x-prediction 损失（式(5)）在 latent 主成分方向上的分解：
+
+$$\mathcal{L}_x = \mathbb{E} \frac{1}{(1-t)^2} \sum_{j=1}^{D_l} (\hat{x}_{\theta,j} - x_{l,j})^2 = \mathbb{E} \frac{1}{(1-t)^2} \sum_{j=1}^{D_l} r_j^2 \tag{40}$$
+
+在训练初期，每个方向的残差 $r_j^2$ 大致正比于该方向的数据方差 $\lambda_j$：
+
+$$\mathbb{E}[r_j^2] \propto \lambda_j \tag{41}$$
+
+因此损失的有效贡献主要来自前 $d_{\text{eff}}$ 个方向，梯度信号天然地与流形的主结构对齐。
+
+**对于 $\epsilon$-prediction**，目标噪声 $\boldsymbol{\epsilon} \sim \mathcal{N}(\boldsymbol{0}, \boldsymbol{I})$ 在所有方向上方差相等（$= 1$）。这意味着每个 latent 维度对损失的贡献相同——无论该维度是否承载有意义的数据信息。网络在 $D_l - d_{\text{eff}}$ 个"无意义"维度上的学习努力，与在 $d_{\text{eff}}$ 个"有意义"维度上的学习努力等量齐观。
+
+这种不匹配可以量化为**有效学习效率比**：
+
+$$\eta_x = \frac{\sum_{j=1}^{d_{\text{eff}}} \lambda_j}{\sum_{j=1}^{D_l} \lambda_j} \approx R(d_{\text{eff}}), \qquad \eta_\epsilon = \frac{d_{\text{eff}}}{D_l} \tag{42}$$
+
+当 latent space 的方差集中度很高时（$R(d_{\text{eff}}) \to 1$ 但 $d_{\text{eff}} / D_l \ll 1$），x-prediction 的学习效率 $\eta_x$ 远高于 $\epsilon$-prediction 的 $\eta_\epsilon$。
+
+### 4.7 小结：VAE 与 x-prediction 的三重协同
+
+综合以上分析，VAE latent space 与 x-prediction 之间存在三重协同效应：
+
+| 协同机制 | VAE 提供的几何性质 | x-prediction 如何利用 | $\epsilon$-prediction 是否受益 |
+|---------|------------------|---------------------|:------------------------:|
+| **维度压缩** | $D \to D_l$，降低计算成本 | 在更紧凑的空间中执行低维预测 | 同样受益（计算层面） |
+| **Reach 增大** | KL 正则展平流形，$\tau(\mathcal{M}_l) \uparrow$ | 降低逼近常数 $C_s$（式(36)） | **不受益**（速率由 $D_l$ 决定） |
+| **各向异性对齐** | 数据方差集中在少数方向 | 梯度自动对齐高信息量方向（式(41)） | **不受益**（噪声各向同性） |
+
+第一重协同是所有 latent diffusion 方法共享的。**第二重和第三重是 x-prediction 独占的。** 这解释了为什么 latent x-prediction 的效率增益不仅仅是"不崩溃"——VAE 为 x-prediction 创造了一个几何上优化过的工作空间，而 $\epsilon$/$v$-prediction 无法利用这一优势。
+
+---
+
+## 5. 两步压缩原理
 
 将以上分析综合，latent x-prediction 的优势来自**两步维度压缩的乘性组合**：
 
@@ -285,7 +471,7 @@ $$\underbrace{D \xrightarrow[\text{pixel} \to \text{latent}]{\text{VAE encoder}}
 
 ---
 
-## 5. 为什么这个组合被忽视了？
+## 6. 为什么这个组合被忽视了？
 
 三个因素共同导致了 latent x-prediction 长期被忽视：
 
@@ -297,7 +483,7 @@ $$\underbrace{D \xrightarrow[\text{pixel} \to \text{latent}]{\text{VAE encoder}}
 
 ---
 
-## 6. 初步实验观察
+## 7. 初步实验观察
 
 我们将 x-prediction + v-loss 作为即插即用的替换应用于标准 latent diffusion 训练流程：
 
@@ -318,7 +504,7 @@ $$\underbrace{D \xrightarrow[\text{pixel} \to \text{latent}]{\text{VAE encoder}}
 
 ---
 
-## 7. 讨论与展望
+## 8. 讨论与展望
 
 ### 7.1 一个通用的参数化原则
 
@@ -348,7 +534,7 @@ $$\underbrace{D \xrightarrow[\text{pixel} \to \text{latent}]{\text{VAE encoder}}
 
 ---
 
-## 8. 结语
+## 9. 结语
 
 x-prediction 不是像素空间的特效药，而是流形假设的直接推论——一个与空间选择无关的**通用参数化原则**。将它引入 latent space 是一个"事后看来显然"的组合，却被领域的叙事惯性和"不崩溃即可"的心态所遮蔽。
 
