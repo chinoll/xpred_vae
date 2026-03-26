@@ -1,3 +1,5 @@
+**GitHub渲染有错误，自行下载PDF查看**
+
 # 当 x-prediction 回归 Latent Space：被忽视的维度差红利
 
 > **摘要：** JiT (Li & He, 2025) 基于流形假设证明了像素空间扩散模型中 x-prediction 的必要性——$\epsilon$/$v$-prediction 在高维 patch 下灾难性崩溃。这一发现让大 patch + plain ViT 的像素空间训练成为可能。然而，学界随之形成了一个隐含假设：x-prediction 是像素空间的专属方案，latent space 维度已经足够低，$\epsilon$/$v$-prediction "够用了"。本文对这一假设提出质疑。我们将 x-prediction 引入 latent space 扩散模型，观察到训练拟合效率获得**数倍提升**——不改架构、不加参数、不增单步计算量。下文从流形几何出发，沿用 JiT 论文的数学框架，给出严格的理论分析。
